@@ -1,0 +1,24 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/scrape",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/match",
+      "schedule": "0 */2 * * *"
+    },
+    {
+      "path": "/api/cron/auto-apply",
+      "schedule": "0 9-17 * * 1-5"
+    },
+    {
+      "path": "/api/cron/daily-summary",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/cleanup",
+      "schedule": "0 0 * * 0"
+    }
+  ]
+}
