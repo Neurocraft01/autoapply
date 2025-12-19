@@ -37,7 +37,7 @@ export class LinkedInScraper {
     await this.page.type('#password', password);
     await this.page.click('button[type="submit"]');
     
-    await this.page.waitForNavigation({ waitUntil: 'networkidle2' });
+    await this.page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 });
     
     // Check if login was successful
     const currentUrl = this.page.url();

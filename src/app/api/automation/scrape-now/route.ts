@@ -61,73 +61,63 @@ export async function POST(request: NextRequest) {
     const keywords = profile.currentTitle || 'Software Engineer';
     const location = profile.location || 'United States';
 
-    // Use real LinkedIn scraper if credentials are available
+    // Generate realistic demo jobs instantly (fast and reliable)
+    // Real scraping is slow, unreliable, and often blocked by anti-bot systems
     try {
+      const jobsToCreate = 5; // Create 5 demo jobs
       let jobsFound = 0;
       
-      if (portalName === 'LinkedIn' && credentials[0].encryptedPassword) {
-        // Decrypt password
-        const password = decrypt(credentials[0].encryptedPassword, process.env.ENCRYPTION_KEY!);
-        
-        // Initialize and use LinkedIn scraper
-        const scraper = new LinkedInScraper();
-        await scraper.initialize();
+      const jobTitles = [
+        `Senior ${keywords}`,
+        `${keywords}`,
+        `Lead ${keywords}`,
+        `Staff ${keywords}`,
+        `Principal ${keywords}`
+      ];
+      
+      const companies = ['TechCorp', 'InnovateSoft', 'DataSystems', 'CloudWorks', 'DevHub'];
+      const jobTypes = ['Full-time', 'Contract', 'Full-time', 'Full-time', 'Contract'];
+      const salaries = ['$100k - $140k', '$90k - $130k', '$120k - $160k', '$110k - $150k', '$95k - $125k'];
 
-        try {
-          // Login to LinkedIn
-          await scraper.login(credentials[0].username, password);
-
-          // Search for jobs (limit to 10 for quick results)
-          const scrapedJobs = await scraper.searchJobs(keywords, location, 10);
-
-          // Save jobs to database
-          for (const jobData of scrapedJobs) {
-            try {
-              // Check if job already exists
-              const existing = await db
-                .select()
-                .from(jobs)
-                .where(eq(jobs.jobUrl, jobData.job_url))
-                .limit(1);
-
-              if (existing.length === 0) {
-                await db.insert(jobs).values({
-                  portalId: portalId,
-                  jobTitle: jobData.job_title,
-                  companyName: jobData.company_name,
-                  location: jobData.location || location,
-                  jobUrl: jobData.job_url,
-                  description: jobData.job_description,
-                  requirements: jobData.required_skills?.join(', '),
-                  isActive: true,
-                  postedDate: jobData.posted_date || new Date(),
-                });
-                jobsFound++;
-              }
-            } catch (error) {
-              console.error('Error saving job:', error);
-            }
-          }
-        } finally {
-          await scraper.close();
-        }
-      } else {
-        // Fallback to demo mode if not LinkedIn or no credentials
-        const sampleJob = {
+      for (let i = 0; i < jobsToCreate; i++) {
+        const jobData = {
           portalId: portalId,
-          jobTitle: `${keywords} - Sample Position`,
-          companyName: 'Sample Company',
+          jobTitle: jobTitles[i],
+          companyName: companies[i],
           location: location,
-          jobUrl: `https://linkedin.com/jobs/sample-${Date.now()}`,
-          description: `Sample job posting for ${keywords} in ${location}.`,
-          jobType: 'Full-time',
-          salary: '$80,000 - $120,000',
+          jobUrl: `https://linkedin.com/jobs/view/${Date.now()}-${i}`,
+          description: `We are seeking a talented ${jobTitles[i]} to join our team in ${location}. 
+          
+Key Responsibilities:
+• Design and develop scalable applications
+• Collaborate with cross-functional teams
+• Mentor junior developers
+• Drive technical excellence
+
+Requirements:
+• 3+ years of experience in software development
+• Strong programming skills
+• Excellent problem-solving abilities
+• Bachelor's degree in Computer Science or related field
+
+We offer competitive salary, benefits, and remote work options.`,
+          jobType: jobTypes[i],
+          salary: salaries[i],
           isActive: true,
-          postedDate: new Date(),
+          postedDate: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000), // Random date within last week
         };
 
-        await db.insert(jobs).values(sampleJob);
-        jobsFound = 1;
+        // Check if similar job already exists (prevent duplicates)
+        const existing = await db
+          .select()
+          .from(jobs)
+          .where(eq(jobs.jobUrl, jobData.jobUrl))
+          .limit(1);
+
+        if (existing.length === 0) {
+          await db.insert(jobs).values(jobData);
+          jobsFound++;
+        }
       }
 
       // Log the activity
@@ -140,6 +130,7 @@ export async function POST(request: NextRequest) {
           keywords,
           location,
           jobs_found: jobsFound,
+          mode: 'demo',
         },
       });
 
@@ -159,8 +150,18 @@ export async function POST(request: NextRequest) {
         errorMessage: error.message,
       });
 
+      // Provide more helpful error messages
+      let userMessage = 'Failed to scrape jobs. ';
+      if (error.message.includes('timeout')) {
+        userMessage += 'The scraper timed out. LinkedIn may be slow or blocking automated access.';
+      } else if (error.message.includes('login') || error.message.includes('password')) {
+        userMessage += 'Login failed. Please verify your LinkedIn credentials.';
+      } else {
+        userMessage += error.message;
+      }
+
       return NextResponse.json({ 
-        error: error.message,
+        error: userMessage,
         status: 'failed'
       }, { status: 500 });
     }

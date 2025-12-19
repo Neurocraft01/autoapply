@@ -88,7 +88,7 @@ export class GlassdoorScraper {
       for (const jobData of pageJobs) {
         try {
           // Visit job detail page to get full description
-          await this.page!.goto(jobData.url, { waitUntil: 'networkidle2', timeout: 30000 });
+          await this.page!.goto(jobData.url, { waitUntil: 'networkidle2', timeout: 60000 });
           await this.page!.waitForSelector('[data-test="jobDescriptionText"]', { timeout: 5000 });
 
           const details = await this.page!.evaluate(() => {
@@ -148,7 +148,7 @@ export class GlassdoorScraper {
       await this.page!.click('button[type="submit"]');
 
       // Wait for redirect after login
-      await this.page!.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 });
+      await this.page!.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 });
 
       return true;
     } catch (error) {

@@ -90,7 +90,7 @@ export class ZipRecruiterScraper {
       for (const jobData of pageJobs) {
         try {
           // Visit job detail page
-          await this.page!.goto(jobData.url, { waitUntil: 'networkidle2', timeout: 30000 });
+          await this.page!.goto(jobData.url, { waitUntil: 'networkidle2', timeout: 60000 });
           await this.page!.waitForSelector('.job_description', { timeout: 5000 });
 
           const details = await this.page!.evaluate(() => {
@@ -150,7 +150,7 @@ export class ZipRecruiterScraper {
       await this.page!.click('button[type="submit"]');
 
       // Wait for redirect after login
-      await this.page!.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 });
+      await this.page!.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 });
 
       return true;
     } catch (error) {
