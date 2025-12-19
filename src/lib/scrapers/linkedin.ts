@@ -31,7 +31,7 @@ export class LinkedInScraper {
   async login(email: string, password: string) {
     if (!this.page) throw new Error('Browser not initialized');
 
-    await this.page.goto('https://www.linkedin.com/login', { waitUntil: 'networkidle2' });
+    await this.page.goto('https://www.linkedin.com/login', { waitUntil: 'networkidle2', timeout: 60000 });
     
     await this.page.type('#username', email);
     await this.page.type('#password', password);
@@ -53,10 +53,10 @@ export class LinkedInScraper {
       keywords
     )}&location=${encodeURIComponent(location)}`;
 
-    await this.page.goto(searchUrl, { waitUntil: 'networkidle2' });
+    await this.page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 60000 });
     
     // Wait for job listings to load
-    await this.page.waitForSelector('.jobs-search__results-list', { timeout: 10000 });
+    await this.page.waitForSelector('.jobs-search__results-list', { timeout: 15000 });
 
     const jobs: ScrapedJob[] = [];
     let processedCount = 0;
@@ -142,7 +142,7 @@ export class LinkedInScraper {
     if (!this.page) throw new Error('Browser not initialized');
 
     try {
-      await this.page.goto(jobUrl, { waitUntil: 'networkidle2' });
+      await this.page.goto(jobUrl, { waitUntil: 'networkidle2', timeout: 60000 });
 
       // Look for Easy Apply button
       const easyApplyButton = await this.page.$('button[aria-label*="Easy Apply"]');

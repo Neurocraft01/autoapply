@@ -1,47 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth/authOptions';
+import { db } from '@/lib/db/client';
+import { profiles } from '@/lib/db/schema';
+import { eq } from 'drizzle-orm';
 import EmailService from '@/lib/email/emailService';
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const emailService = new EmailService();
 
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-
-    if (authError || !user) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { type, data } = await request.json();
 
     // Get user profile
-    const { data: profile } = await supabaseAdmin
-      .from('candidate_profiles')
-      .select('full_name')
-      .eq('user_id', user.id)
-      .single();
+    const [profile] = await db
+      .select()
+      .from(profiles)
+      .where(eq(profiles.userId, session.user.id))
+      .limit(1);
 
-    const userName = profile?.full_name || 'User';
+    const userName = profile?.fullName || session.user.name || 'User';
+    const userEmail = session.user.email!;
 
     switch (type) {
       case 'welcome':
-        await emailService.sendWelcomeEmail(user.email!, userName);
+        await emailService.sendWelcomeEmail(userEmail, userName);
         break;
 
       case 'application':
         await emailService.sendApplicationConfirmation(
-          user.email!,
+          userEmail,
           userName,
           data.jobTitle,
           data.companyName,
@@ -51,7 +44,7 @@ export async function POST(request: NextRequest) {
 
       case 'match':
         await emailService.sendJobMatchNotification(
-          user.email!,
+          userEmail,
           userName,
           data.jobTitle,
           data.companyName,
@@ -62,7 +55,7 @@ export async function POST(request: NextRequest) {
 
       case 'daily_summary':
         await emailService.sendDailySummary(
-          user.email!,
+          userEmail,
           userName,
           data.stats
         );
@@ -70,7 +63,7 @@ export async function POST(request: NextRequest) {
 
       case 'error':
         await emailService.sendErrorNotification(
-          user.email!,
+          userEmail,
           userName,
           data.errorMessage,
           data.context

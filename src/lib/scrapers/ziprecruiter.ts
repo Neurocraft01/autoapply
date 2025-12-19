@@ -138,6 +138,7 @@ export class ZipRecruiterScraper {
     try {
       await this.page!.goto('https://www.ziprecruiter.com/login', {
         waitUntil: 'networkidle2',
+        timeout: 60000,
       });
 
       // Fill in credentials
@@ -173,7 +174,7 @@ export class ZipRecruiterScraper {
     }
 
     try {
-      await this.page!.goto(jobUrl, { waitUntil: 'networkidle2' });
+      await this.page!.goto(jobUrl, { waitUntil: 'networkidle2', timeout: 60000 });
 
       // Find and click the apply button
       const applyButton = await this.page!.$('button.apply_button, a.apply_button');

@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase/client';
+import { useSession } from 'next-auth/react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { toast } from 'react-toastify';
 import { 
   Briefcase, 
   TrendingUp, 
@@ -13,12 +15,15 @@ import {
   Clock,
   ArrowRight,
   Target,
-  Calendar
+  Calendar,
+  Zap
 } from 'lucide-react';
 
 export default function DashboardPage() {
   const router = useRouter();
+  const { data: session, status } = useSession();
   const [loading, setLoading] = useState(true);
+  const [scraping, setScraping] = useState(false);
   const [stats, setStats] = useState({
     totalApplications: 0,
     weekApplications: 0,
@@ -27,75 +32,70 @@ export default function DashboardPage() {
   });
 
   useEffect(() => {
-    const checkAuth = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        router.push('/auth/login');
-        return;
-      }
+    if (status === 'loading') return;
+    
+    if (!session) {
+      router.push('/auth/login');
+      return;
+    }
 
-      // Check if profile exists
-      const { data: profile } = await supabase
-        .from('candidate_profiles')
-        .select('id')
-        .eq('user_id', user.id)
-        .single();
+    loadDashboardData();
+  }, [session, status, router]);
 
-      if (!profile) {
+  const loadDashboardData = async () => {
+    try {
+      const response = await fetch('/api/profile');
+      if (response.status === 404) {
         router.push('/profile/setup');
         return;
       }
-
-      // Load dashboard data
-      await loadDashboardData(user.id);
-      setLoading(false);
-    };
-
-    checkAuth();
-  }, [router]);
-
-  const loadDashboardData = async (userId: string) => {
-    try {
-      // Get total applications
-      const { count: totalApps } = await supabase
-        .from('job_applications')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', userId);
-
-      // Get this week's applications
-      const weekAgo = new Date();
-      weekAgo.setDate(weekAgo.getDate() - 7);
       
-      const { count: weekApps } = await supabase
-        .from('job_applications')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', userId)
-        .gte('applied_at', weekAgo.toISOString());
-
-      // Get success rate
-      const { count: successfulApps } = await supabase
-        .from('job_applications')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', userId)
-        .eq('status', 'applied');
-
-      const successRate = totalApps ? Math.round((successfulApps || 0) / totalApps * 100) : 0;
-
-      // Get active portals
-      const { count: activePortals } = await supabase
-        .from('portal_credentials')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', userId);
-
-      setStats({
-        totalApplications: totalApps || 0,
-        weekApplications: weekApps || 0,
-        successRate,
-        activePortals: activePortals || 0,
-      });
+      // Load stats
+      const statsResponse = await fetch('/api/stats');
+      if (statsResponse.ok) {
+        const data = await statsResponse.json();
+        setStats(data);
+      }
     } catch (error) {
       console.error('Error loading dashboard data:', error);
+      setStats({
+        totalApplications: 0,
+        weekApplications: 0,
+        successRate: 0,
+        activePortals: 0,
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleScrapeJobs = async () => {
+    setScraping(true);
+    try {
+      const response = await fetch('/api/automation/scrape-now', {
+        method: 'POST',
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (data.redirectTo) {
+          toast.error(data.error);
+          router.push(data.redirectTo);
+        } else {
+          toast.error(data.error || 'Failed to scrape jobs');
+        }
+        return;
+      }
+
+      toast.success(`Successfully found ${data.jobsFound} jobs!`);
+      
+      // Reload stats
+      await loadDashboardData();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to scrape jobs');
+    } finally {
+      setScraping(false);
     }
   };
 
@@ -173,6 +173,16 @@ export default function DashboardPage() {
               <CardTitle>Quick Actions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
+              <Button
+                onClick={handleScrapeJobs}
+                disabled={scraping}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white"
+                size="lg"
+              >
+                <Zap className="h-5 w-5 mr-2" />
+                {scraping ? 'Searching for Jobs...' : 'Find New Jobs Now'}
+              </Button>
+
               <button
                 onClick={() => router.push('/profile/edit')}
                 className="w-full flex items-center justify-between p-3 rounded-lg border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50 transition-all"

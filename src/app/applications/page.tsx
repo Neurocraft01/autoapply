@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase/client';
+import { useSession } from 'next-auth/react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -34,51 +34,34 @@ interface Application {
 
 export default function ApplicationsPage() {
   const router = useRouter();
+  const { data: session, status } = useSession();
   const [loading, setLoading] = useState(true);
   const [applications, setApplications] = useState<Application[]>([]);
   const [filter, setFilter] = useState<'all' | 'applied' | 'pending' | 'failed'>('all');
 
   useEffect(() => {
-    const checkAuth = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        router.push('/auth/login');
-        return;
-      }
+    if (status === 'loading') return;
+    
+    if (!session) {
+      router.push('/auth/login');
+      return;
+    }
 
-      await loadApplications(user.id);
+    const loadData = async () => {
+      await loadApplications();
       setLoading(false);
     };
 
-    checkAuth();
-  }, [router]);
+    loadData();
+  }, [session, status, router]);
 
-  const loadApplications = async (userId: string) => {
+  const loadApplications = async () => {
     try {
-      const { data, error } = await supabase
-        .from('job_applications')
-        .select(`
-          id,
-          applied_at,
-          status,
-          job:scraped_jobs (
-            job_title,
-            company_name,
-            location,
-            job_url,
-            portal:job_portals (
-              name
-            )
-          )
-        `)
-        .eq('user_id', userId)
-        .order('applied_at', { ascending: false })
-        .limit(50);
-
-      if (error) throw error;
-
-      setApplications((data as any) || []);
+      const response = await fetch('/api/applications');
+      if (response.ok) {
+        const data = await response.json();
+        setApplications(data || []);
+      }
     } catch (error) {
       console.error('Error loading applications:', error);
     }

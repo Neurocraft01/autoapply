@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase/client';
+import { useSession } from 'next-auth/react';
 import { toast } from 'react-toastify';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -22,6 +22,7 @@ const STEPS = [
 
 export default function ProfileSetupPage() {
   const router = useRouter();
+  const { data: session, status } = useSession();
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(false);
   
@@ -34,20 +35,35 @@ export default function ProfileSetupPage() {
     portfolio_url: '',
   });
 
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!session) {
+    router.push('/auth/login');
+    return null;
+  }
+
   const handleBasicInfoSubmit = async () => {
     setLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
+      const response = await fetch('/api/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(basicInfo),
+      });
 
-      const { error } = await supabase
-        .from('candidate_profiles')
-        .insert({
-          user_id: user.id,
-          ...basicInfo,
-        });
-
-      if (error) throw error;
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to create profile');
+      }
 
       toast.success('Profile created!');
       setCurrentStep(1);
@@ -61,23 +77,19 @@ export default function ProfileSetupPage() {
   const handleSkipToEnd = async () => {
     setLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
+      const response = await fetch('/api/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          full_name: basicInfo.full_name || session.user?.name || 'User',
+          phone: basicInfo.phone || '',
+          location: basicInfo.location || '',
+        }),
+      });
 
-      // Check if profile exists, if not create minimal profile
-      const { data: existingProfile } = await supabase
-        .from('candidate_profiles')
-        .select('id')
-        .eq('user_id', user.id)
-        .single();
-
-      if (!existingProfile) {
-        await supabase.from('candidate_profiles').insert({
-          user_id: user.id,
-          full_name: basicInfo.full_name || 'User',
-          phone: '',
-          location: '',
-        });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to complete setup');
       }
 
       toast.success('Profile setup complete!');

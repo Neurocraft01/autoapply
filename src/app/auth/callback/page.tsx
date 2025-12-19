@@ -2,40 +2,13 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase/client';
 
+// NextAuth handles callbacks automatically - redirect to dashboard
 export default function AuthCallback() {
   const router = useRouter();
 
   useEffect(() => {
-    const handleCallback = async () => {
-      const { data, error } = await supabase.auth.getSession();
-      
-      if (error) {
-        console.error('Auth callback error:', error);
-        router.push('/auth/login?error=callback_failed');
-        return;
-      }
-
-      if (data.session) {
-        // Check if profile exists
-        const { data: profile } = await supabase
-          .from('candidate_profiles')
-          .select('id')
-          .eq('user_id', data.session.user.id)
-          .single();
-
-        if (profile) {
-          router.push('/dashboard');
-        } else {
-          router.push('/profile/setup');
-        }
-      } else {
-        router.push('/auth/login');
-      }
-    };
-
-    handleCallback();
+    router.push('/dashboard');
   }, [router]);
 
   return (

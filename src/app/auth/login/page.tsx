@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabase/client';
+import { signIn } from 'next-auth/react';
 import { toast } from 'react-toastify';
 import { Mail, Lock, ArrowRight, Zap } from 'lucide-react';
 
@@ -18,28 +18,18 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const result = await signIn('credentials', {
         email,
         password,
+        redirect: false,
       });
 
-      if (error) throw error;
-
-      // Immediately check if profile exists and redirect accordingly
-      const { data: profile } = await supabase
-        .from('candidate_profiles')
-        .select('id')
-        .eq('user_id', data.user.id)
-        .single();
+      if (result?.error) {
+        throw new Error(result.error);
+      }
 
       toast.success('Login successful!');
-      
-      // Use window.location for hard redirect to ensure cookies are read
-      if (profile) {
-        window.location.href = '/dashboard';
-      } else {
-        window.location.href = '/profile/setup';
-      }
+      router.push('/dashboard');
     } catch (error: any) {
       toast.error(error.message || 'Login failed');
       setLoading(false);
@@ -48,14 +38,9 @@ export default function LoginPage() {
 
   const handleGoogleLogin = async () => {
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
-        },
+      await signIn('google', {
+        callbackUrl: '/dashboard',
       });
-
-      if (error) throw error;
     } catch (error: any) {
       toast.error(error.message || 'Google login failed');
     }

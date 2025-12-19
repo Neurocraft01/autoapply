@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase/client';
+import { useSession, signOut } from 'next-auth/react';
 import Link from 'next/link';
 import { 
   LayoutDashboard, 
@@ -12,7 +12,8 @@ import {
   LogOut,
   Menu,
   X,
-  Zap
+  Zap,
+  Target
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -21,25 +22,20 @@ interface SidebarProps {
 
 export function DashboardLayout({ children }: SidebarProps) {
   const router = useRouter();
-  const [user, setUser] = useState<any>(null);
+  const { data: session } = useSession();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  useEffect(() => {
-    const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
-    };
-    getUser();
-  }, []);
-
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await signOut({ redirect: false });
     router.push('/');
   };
 
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+    { name: 'Jobs', href: '/jobs', icon: Briefcase },
+    { name: 'Matches', href: '/matches', icon: Target },
     { name: 'Applications', href: '/applications', icon: Briefcase },
+    { name: 'Automation', href: '/automation', icon: Zap },
     { name: 'Profile', href: '/profile/edit', icon: User },
     { name: 'Settings', href: '/settings', icon: Settings },
   ];
@@ -89,7 +85,7 @@ export function DashboardLayout({ children }: SidebarProps) {
           <div className="flex flex-shrink-0 border-t border-gray-200 p-4">
             <div className="flex items-center w-full">
               <div className="flex-1">
-                <p className="text-sm font-medium text-gray-700">{user?.email}</p>
+                <p className="text-sm font-medium text-gray-700">{session?.user?.email}</p>
                 <p className="text-xs text-gray-500">View profile</p>
               </div>
               <button

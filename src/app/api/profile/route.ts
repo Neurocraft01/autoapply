@@ -1,77 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth/authOptions';
+import { db } from '@/lib/db/client';
+import { profiles } from '@/lib/db/schema';
+import { eq } from 'drizzle-orm';
 
 export async function GET(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-
-    if (authError || !user) {
+    const session = await getServerSession(authOptions);
+    
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // Get profile
-    const { data: profile, error: profileError } = await supabaseAdmin
-      .from('candidate_profiles')
-      .select('*')
-      .eq('user_id', user.id)
-      .single();
+    const [profile] = await db
+      .select()
+      .from(profiles)
+      .where(eq(profiles.userId, session.user.id))
+      .limit(1);
 
-    if (profileError) {
-      return NextResponse.json({ error: profileError.message }, { status: 500 });
+    if (!profile) {
+      return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     }
-
-    // Get skills
-    const { data: skills } = await supabaseAdmin
-      .from('skills')
-      .select('*')
-      .eq('profile_id', profile.id);
-
-    // Get experience
-    const { data: experience } = await supabaseAdmin
-      .from('experience')
-      .select('*')
-      .eq('profile_id', profile.id)
-      .order('start_date', { ascending: false });
-
-    // Get education
-    const { data: education } = await supabaseAdmin
-      .from('education')
-      .select('*')
-      .eq('profile_id', profile.id)
-      .order('start_date', { ascending: false });
-
-    // Get certifications
-    const { data: certifications } = await supabaseAdmin
-      .from('certifications')
-      .select('*')
-      .eq('profile_id', profile.id)
-      .order('issue_date', { ascending: false });
-
-    // Get job preferences
-    const { data: preferences } = await supabaseAdmin
-      .from('job_preferences')
-      .select('*')
-      .eq('profile_id', profile.id)
-      .single();
 
     return NextResponse.json({
       profile,
-      skills: skills || [],
-      experience: experience || [],
-      education: education || [],
-      certifications: certifications || [],
-      preferences,
+      skills: [],
+      experience: [],
+      education: [],
+      certifications: [],
+      preferences: null,
     });
   } catch (error: any) {
     console.error('Profile API error:', error);
@@ -79,41 +38,95 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function PUT(request: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
+    const session = await getServerSession(authOptions);
+    
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    const body = await request.json();
 
-    if (authError || !user) {
+    // Check if profile already exists
+    const [existingProfile] = await db
+      .select()
+      .from(profiles)
+      .where(eq(profiles.userId, session.user.id))
+      .limit(1);
+
+    let profile;
+
+    if (existingProfile) {
+      // Update existing profile
+      [profile] = await db
+        .update(profiles)
+        .set({
+          fullName: body.full_name,
+          phone: body.phone,
+          location: body.location,
+          currentTitle: body.current_title,
+          yearsOfExperience: body.years_of_experience,
+          resumeUrl: body.resume_url,
+          linkedinUrl: body.linkedin_url,
+          githubUrl: body.github_url,
+          portfolioUrl: body.portfolio_url,
+          bio: body.bio,
+          updatedAt: new Date(),
+        })
+        .where(eq(profiles.userId, session.user.id))
+        .returning();
+    } else {
+      // Create new profile
+      [profile] = await db
+        .insert(profiles)
+        .values({
+          userId: session.user.id,
+          fullName: body.full_name,
+          phone: body.phone,
+          location: body.location,
+          currentTitle: body.current_title,
+          yearsOfExperience: body.years_of_experience,
+          resumeUrl: body.resume_url,
+          linkedinUrl: body.linkedin_url,
+          githubUrl: body.github_url,
+          portfolioUrl: body.portfolio_url,
+          bio: body.bio,
+        })
+        .returning();
+    }
+
+    return NextResponse.json({ profile }, { status: existingProfile ? 200 : 201 });
+  } catch (error: any) {
+    console.error('Profile error:', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
+export async function PUT(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await request.json();
 
     // Update profile
-    const { data: profile, error: updateError } = await supabaseAdmin
-      .from('candidate_profiles')
-      .update({
-        full_name: body.full_name,
+    const [profile] = await db
+      .update(profiles)
+      .set({
+        fullName: body.full_name,
         phone: body.phone,
         location: body.location,
-        linkedin_url: body.linkedin_url,
-        portfolio_url: body.portfolio_url,
+        linkedinUrl: body.linkedin_url,
+        portfolioUrl: body.portfolio_url,
         bio: body.bio,
-        updated_at: new Date().toISOString(),
+        updatedAt: new Date(),
       })
-      .eq('user_id', user.id)
-      .select()
-      .single();
-
-    if (updateError) {
-      return NextResponse.json({ error: updateError.message }, { status: 500 });
-    }
+      .where(eq(profiles.userId, session.user.id))
+      .returning();
 
     return NextResponse.json({ profile });
   } catch (error: any) {

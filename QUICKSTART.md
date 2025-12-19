@@ -5,7 +5,7 @@ This guide will help you set up and run your Job Auto-Apply Automation System in
 ## Prerequisites
 
 - Node.js 18+ installed
-- A Supabase account (free tier works)
+- A Neon account (free tier works - https://neon.tech)
 - Git installed
 
 ## Step 1: Install Dependencies
@@ -14,52 +14,43 @@ This guide will help you set up and run your Job Auto-Apply Automation System in
 npm install
 ```
 
-## Step 2: Set Up Supabase
+## Step 2: Set Up Neon Database
 
-### 2.1 Create a New Supabase Project
+### 2.1 Create a New Neon Project
 
-1. Go to [https://supabase.com](https://supabase.com)
-2. Click "New Project"
+1. Go to [https://console.neon.tech](https://console.neon.tech)
+2. Click "Create Project"
 3. Name it "autoapply-ai"
-4. Set a strong database password
-5. Choose a region close to you
+4. Choose a region close to you
+5. Click "Create Project"
 
-### 2.2 Run Database Migrations
+### 2.2 Get Your Connection String
 
-1. In your Supabase dashboard, go to **SQL Editor**
-2. Click "New Query"
-3. Copy the entire contents of `supabase/migrations/001_initial_schema.sql`
-4. Paste it into the SQL Editor
-5. Click "Run"
-
-This creates all 13 tables, indexes, RLS policies, and storage buckets.
-
-### 2.3 Get Your API Keys
-
-1. In Supabase dashboard, go to **Settings** → **API**
-2. Copy the **Project URL**
-3. Copy the **anon public** key
-4. Copy the **service_role** key (keep this secret!)
+1. In your Neon dashboard, you'll see the connection string
+2. Copy the connection string (looks like):
+   ```
+   postgresql://username:password@ep-xxx.region.aws.neon.tech/neondb?sslmode=require
+   ```
 
 ## Step 3: Configure Environment Variables
 
 Create a `.env.local` file in the project root:
 
 ```bash
-cp .env.example .env.local
+cp .env.local.example .env.local
 ```
 
 Edit `.env.local` with your values:
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
+DATABASE_URL=postgresql://username:password@ep-xxx.region.aws.neon.tech/neondb?sslmode=require
+NEXTAUTH_URL=http://localhost:3001
+NEXTAUTH_SECRET=your_generated_secret_here
 ENCRYPTION_KEY=your_32_character_encryption_key
-NEXT_PUBLIC_APP_URL=http://localhost:3000
+NEXT_PUBLIC_APP_URL=http://localhost:3001
 ```
 
-### Generate Encryption Key
+### Generate NextAuth Secret and Encryption Key
 
 ```bash
 # On macOS/Linux
@@ -69,18 +60,31 @@ openssl rand -base64 32
 [Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Minimum 0 -Maximum 256 }))
 ```
 
-## Step 4: Seed Initial Data (Optional)
+Run this twice - once for `NEXTAUTH_SECRET` and once for `ENCRYPTION_KEY`.
 
-Run this SQL in Supabase SQL Editor to add popular job portals:
+## Step 4: Push Database Schema
 
-```sql
-INSERT INTO job_portals (name, url, base_url, logo_url, is_active) VALUES
-('LinkedIn', 'https://www.linkedin.com/jobs', 'https://www.linkedin.com', 'https://logo.clearbit.com/linkedin.com', true),
-('Indeed', 'https://www.indeed.com', 'https://www.indeed.com', 'https://logo.clearbit.com/indeed.com', true),
-('Glassdoor', 'https://www.glassdoor.com/Job', 'https://www.glassdoor.com', 'https://logo.clearbit.com/glassdoor.com', true),
-('AngelList', 'https://angel.co/jobs', 'https://angel.co', 'https://logo.clearbit.com/angel.co', true),
-('ZipRecruiter', 'https://www.ziprecruiter.com', 'https://www.ziprecruiter.com', 'https://logo.clearbit.com/ziprecruiter.com', true);
+Run Drizzle to create all tables in your Neon database:
+
+```bash
+npm run db:push
 ```
+
+This creates all necessary tables:
+- users, accounts, sessions (NextAuth)
+- profiles, skills
+- job_portals, jobs, job_matches
+- applications, automation_settings
+- notification_settings, automation_logs, job_queue
+
+### Verify Database
+
+You can verify tables were created:
+```bash
+npm run db:studio
+```
+
+This opens Drizzle Studio at http://localhost:4983
 
 ## Step 5: Run the Application
 
@@ -88,12 +92,12 @@ INSERT INTO job_portals (name, url, base_url, logo_url, is_active) VALUES
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Open [http://localhost:3001](http://localhost:3001) in your browser.
 
 ## Step 6: Create Your Account
 
 1. Click "Get Started" or "Sign Up"
-2. Enter your email and password, or use Google OAuth
+2. Enter your email and password
 3. Complete the profile setup wizard:
    - Basic information
    - Upload resume (optional but recommended)
@@ -198,9 +202,10 @@ Set up cron jobs or use Vercel Cron:
 - Check automation logs in dashboard
 
 ### Database Errors
-- Verify all migrations ran successfully
-- Check RLS policies are enabled
-- Ensure service role key is correct
+- Verify database schema was pushed (npm run db:push)
+- Check DATABASE_URL is correct in .env.local
+- Ensure Neon project is active
+- Use Drizzle Studio to inspect database (npm run db:studio)
 
 ## 📊 Architecture Overview
 
@@ -213,10 +218,10 @@ Set up cron jobs or use Vercel Cron:
          ├─────────────────┐
          │                 │
 ┌────────▼────────┐ ┌──────▼──────┐
-│  Supabase Auth  │ │  API Routes │
-│   + Database    │ │  + Matching │
-└─────────────────┘ └──────┬──────┘
-                           │
+│  NextAuth.js    │ │  API Routes │
+│   + Neon DB     │ │  + Matching │
+│  (Drizzle ORM)  │ └──────┬──────┘
+└─────────────────┘        │
                     ┌──────▼──────┐
                     │  Scrapers   │
                     │ (Puppeteer) │
@@ -259,10 +264,11 @@ Your job automation system is now ready. The system will:
 
 ## 🆘 Need Help?
 
-- Check the documentation files
-- Review Supabase logs for errors
+- Check the documentation files (MIGRATION.md, neon/README.md)
+- Review Neon dashboard for database errors
 - Check browser console for frontend errors
 - Review API response errors
+- Use Drizzle Studio to inspect database
 
 ---
 

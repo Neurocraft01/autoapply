@@ -4,7 +4,8 @@ A full-stack Next.js application that automates job applications across multiple
 
 ![AutoApply.ai](https://img.shields.io/badge/Next.js-14-black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)
-![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-green)
+![Neon](https://img.shields.io/badge/Neon-PostgreSQL-green)
+![Drizzle](https://img.shields.io/badge/Drizzle-ORM-orange)
 ![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3-38bdf8)
 
 ## 🚀 Features
@@ -23,16 +24,16 @@ A full-stack Next.js application that automates job applications across multiple
 
 ### Security Features
 - 🔒 Bank-level AES-256 encryption for sensitive data
-- 🔒 Supabase Row Level Security (RLS) policies
+- 🔒 NextAuth.js for secure authentication
 - 🔒 CSRF protection
 - 🔒 Input validation with Zod schemas
-- 🔒 SQL injection prevention
+- 🔒 SQL injection prevention with Drizzle ORM
 - 🔒 XSS protection
 
 ## 📋 Prerequisites
 
 - Node.js 18+ and npm/yarn
-- Supabase account
+- Neon account (https://neon.tech)
 - Git
 
 ## 🛠️ Installation
@@ -48,24 +49,26 @@ cd job-auto-apply-platform
 npm install
 ```
 
-### 3. Setup Supabase
+### 3. Setup Neon Database
 
-1. Create a new project at [supabase.com](https://supabase.com)
-2. Go to SQL Editor and run the migration file:
+1. Create a new project at [neon.tech](https://neon.tech)
+2. Get your connection string from the dashboard
+3. Push the database schema:
+   ```bash
+   npm run db:push
    ```
-   supabase/migrations/001_initial_schema.sql
-   ```
-3. Create storage buckets (see `supabase/README.md`)
-4. Get your API keys from Settings > API
+4. See `neon/README.md` for detailed setup instructions
 
 ### 4. Configure Environment Variables
 
 Create `.env.local` file:
 ```env
-# Supabase
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+# Neon Database
+DATABASE_URL=postgresql://user:pass@project.neon.tech/neondb?sslmode=require
+
+# NextAuth
+NEXTAUTH_URL=http://localhost:3001
+NEXTAUTH_SECRET=your_secret_min_32_chars
 
 # Encryption (generate a secure 32-char key)
 ENCRYPTION_KEY=your_32_character_encryption_key
@@ -103,16 +106,17 @@ job-auto-apply-platform/
 │   │   ├── dashboard/        # Dashboard components
 │   │   └── profile/          # Profile components
 │   ├── lib/                   # Utility libraries
-│   │   ├── supabase/         # Supabase client
+│   │   ├── db/               # Database client & schema
+│   │   ├── auth/             # NextAuth configuration
 │   │   ├── encryption.ts     # Encryption utilities
 │   │   ├── matching/         # Job matching algorithm
 │   │   ├── resume/           # Resume parsing
 │   │   └── utils.ts          # General utilities
 │   ├── types/                 # TypeScript type definitions
 │   └── hooks/                 # Custom React hooks
-├── supabase/
-│   ├── migrations/            # Database migrations
-│   └── README.md             # Supabase setup guide
+├── neon/
+│   └── README.md             # Neon setup guide
+├── drizzle/                   # Database migrations
 ├── public/                    # Static files
 └── package.json
 
@@ -121,21 +125,19 @@ job-auto-apply-platform/
 ## 🗄️ Database Schema
 
 ### Main Tables:
-- `candidate_profiles` - User profile information
+- `users` - User accounts (managed by NextAuth)
+- `profiles` - User profile information
 - `skills` - User skills with proficiency levels
-- `experience` - Work experience history
-- `education` - Educational qualifications
-- `certifications` - Professional certifications
-- `job_preferences` - Job search preferences
-- `job_portals` - Available job portals configuration
-- `portal_credentials` - Encrypted portal credentials
-- `scraped_jobs` - Jobs scraped from portals
-- `job_applications` - Application tracking
+- `job_portals` - Encrypted portal credentials
+- `jobs` - Jobs scraped from portals
+- `job_matches` - AI-powered job matches
+- `applications` - Application tracking
 - `automation_logs` - Activity logs
 - `automation_settings` - User automation preferences
-- `job_matches` - Cached job match scores
+- `notification_settings` - Notification preferences
+- `job_queue` - Application queue
 
-See `supabase/migrations/001_initial_schema.sql` for complete schema.
+See `src/lib/db/schema.ts` for complete schema.
 
 ## 🤖 Job Matching Algorithm
 
@@ -269,11 +271,13 @@ npm start
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anonymous key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key |
+| `DATABASE_URL` | Yes | Neon PostgreSQL connection string |
+| `NEXTAUTH_URL` | Yes | Your application URL |
+| `NEXTAUTH_SECRET` | Yes | Secret for NextAuth (min 32 chars) |
 | `ENCRYPTION_KEY` | Yes | 32-character encryption key |
-| `OPENAI_API_KEY` | No | OpenAI API for AI features |
+| `GOOGLE_CLIENT_ID` | No | Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | No | Google OAuth client secret |
+| `GEMINI_API_KEY` | No | Google Gemini for AI features |
 | `RESEND_API_KEY` | No | Resend API for emails |
 | `TWOCAPTCHA_API_KEY` | No | 2Captcha for solving captchas |
 | `REDIS_URL` | No | Redis URL for Bull Queue |
@@ -282,7 +286,7 @@ npm start
 
 1. **Never commit `.env.local`** - Keep credentials secret
 2. **Use strong encryption key** - Generate with secure random generator
-3. **Enable RLS policies** - All tables should have RLS enabled
+3. **Use NextAuth best practices** - Secure session management
 4. **Rotate credentials** - Regularly update API keys and secrets
 5. **Monitor logs** - Check `automation_logs` for suspicious activity
 6. **Limit permissions** - Use least privilege principle
@@ -291,9 +295,9 @@ npm start
 ## 🐛 Troubleshooting
 
 ### Database connection issues
-- Verify Supabase URL and keys
-- Check if RLS policies are enabled
-- Ensure migrations ran successfully
+- Verify Neon connection string
+- Check DATABASE_URL in .env.local
+- Ensure database schema is pushed (npm run db:push)
 
 ### Authentication errors
 - Clear browser cookies and cache

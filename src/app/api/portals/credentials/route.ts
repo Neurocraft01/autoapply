@@ -1,23 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth/authOptions';
+import { db } from '@/lib/db/client';
+import { portalCredentials, jobPortals } from '@/lib/db/schema';
+import { eq, and } from 'drizzle-orm';
 import { encrypt } from '@/lib/encryption';
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-
-    if (authError || !user) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -30,43 +22,41 @@ export async function POST(request: NextRequest) {
     // Encrypt password
     const encryptedPassword = encrypt(password, process.env.ENCRYPTION_KEY!);
 
-    // Get profile
-    const { data: profile } = await supabaseAdmin
-      .from('candidate_profiles')
-      .select('id')
-      .eq('user_id', user.id)
-      .single();
-
-    if (!profile) {
-      return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
-    }
-
-    // Save credentials
-    const { data: credentials, error: credError } = await supabaseAdmin
-      .from('portal_credentials')
-      .upsert({
-        user_id: user.id,
-        profile_id: profile.id,
-        portal_id,
-        username,
-        encrypted_password: encryptedPassword,
-        is_active: true,
-      }, { onConflict: 'user_id,portal_id' })
+    // Check if credentials already exist for this portal
+    const existing = await db
       .select()
-      .single();
+      .from(portalCredentials)
+      .where(
+        and(
+          eq(portalCredentials.userId, session.user.id),
+          eq(portalCredentials.portalId, portal_id)
+        )
+      )
+      .limit(1);
 
-    if (credError) {
-      return NextResponse.json({ error: credError.message }, { status: 500 });
+    if (existing.length > 0) {
+      // Update existing credentials
+      await db
+        .update(portalCredentials)
+        .set({
+          username,
+          encryptedPassword,
+          updatedAt: new Date(),
+        })
+        .where(eq(portalCredentials.id, existing[0].id));
+    } else {
+      // Insert new credentials
+      await db.insert(portalCredentials).values({
+        userId: session.user.id,
+        portalId: portal_id,
+        username,
+        encryptedPassword,
+        isActive: true,
+      });
     }
 
     return NextResponse.json({
       message: 'Portal credentials saved successfully',
-      credentials: {
-        id: credentials.id,
-        portal_id: credentials.portal_id,
-        username: credentials.username,
-        is_active: credentials.is_active,
-      },
     });
   } catch (error: any) {
     console.error('Portal credentials error:', error);
@@ -76,37 +66,62 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    const credentials = await db
+      .select({
+        id: portalCredentials.id,
+        username: portalCredentials.username,
+        is_active: portalCredentials.isActive,
+        created_at: portalCredentials.createdAt,
+        portal: {
+          id: jobPortals.id,
+          name: jobPortals.name,
+          url: jobPortals.url,
+          logo_url: jobPortals.logoUrl,
+        },
+      })
+      .from(portalCredentials)
+      .leftJoin(jobPortals, eq(portalCredentials.portalId, jobPortals.id))
+      .where(eq(portalCredentials.userId, session.user.id));
 
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { data: credentials } = await supabaseAdmin
-      .from('portal_credentials')
-      .select(`
-        id,
-        username,
-        is_active,
-        created_at,
-        portal:job_portals (
-          id,
-          name,
-          url,
-          logo_url
-        )
-      `)
-      .eq('user_id', user.id);
-
-    return NextResponse.json({ credentials: credentials || [] });
+    return NextResponse.json(credentials);
   } catch (error: any) {
     console.error('Get portal credentials error:', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+
+    if (!id) {
+      return NextResponse.json({ error: 'Missing credential ID' }, { status: 400 });
+    }
+
+    // Delete the portal credential
+    await db
+      .delete(portalCredentials)
+      .where(
+        and(
+          eq(portalCredentials.id, id),
+          eq(portalCredentials.userId, session.user.id)
+        )
+      );
+
+    return NextResponse.json({ message: 'Deleted successfully' });
+  } catch (error: any) {
+    console.error('Delete portal credentials error:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

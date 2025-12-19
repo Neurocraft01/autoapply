@@ -1,25 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import JobQueue, { JobType } from '@/lib/queue/jobQueue';
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth/authOptions';
+import { db } from '@/lib/db/client';
+import { jobQueue as jobQueueTable } from '@/lib/db/schema';
+import { eq, desc } from 'drizzle-orm';
+import { JobQueue, JobType } from '@/lib/queue/jobQueue';
 
 const jobQueue = new JobQueue();
 
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-
-    if (authError || !user) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -31,7 +23,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Add job to queue
-    const jobId = await jobQueue.addJob(type, user.id, data);
+    const jobId = await jobQueue.addJob(type, session.user.id, data);
 
     return NextResponse.json({
       message: 'Job added to queue',
@@ -45,29 +37,18 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-
-    if (authError || !user) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // Get user's queue jobs
-    const { data: jobs, error } = await supabaseAdmin
-      .from('job_queue')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
+    const jobs = await db
+      .select()
+      .from(jobQueueTable)
+      .where(eq(jobQueueTable.userId, session.user.id))
+      .orderBy(desc(jobQueueTable.createdAt))
       .limit(50);
-
-    if (error) {
-      throw new Error(error.message);
-    }
 
     return NextResponse.json({ jobs });
   } catch (error: any) {

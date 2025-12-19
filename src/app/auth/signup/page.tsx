@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabase/client';
+import { signIn } from 'next-auth/react';
 import { toast } from 'react-toastify';
 import { Mail, Lock, User, ArrowRight, Zap } from 'lucide-react';
 
@@ -31,22 +31,32 @@ export default function SignUpPage() {
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name: fullName,
-          },
-        },
+      // Call your API to create the user
+      const response = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, name: fullName }),
       });
 
-      if (error) throw error;
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Sign up failed');
+      }
 
-      toast.success('Account created! Please check your email to verify.');
+      toast.success('Account created! Logging you in...');
       
-      // Use window.location for proper redirect
-      window.location.href = '/auth/verify-email';
+      // Sign in after successful signup
+      const result = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+      });
+
+      if (result?.error) {
+        throw new Error(result.error);
+      }
+
+      router.push('/profile/setup');
     } catch (error: any) {
       toast.error(error.message || 'Sign up failed');
     } finally {
@@ -56,14 +66,9 @@ export default function SignUpPage() {
 
   const handleGoogleSignUp = async () => {
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
-        },
+      await signIn('google', {
+        callbackUrl: '/profile/setup',
       });
-
-      if (error) throw error;
     } catch (error: any) {
       toast.error(error.message || 'Google sign up failed');
     }

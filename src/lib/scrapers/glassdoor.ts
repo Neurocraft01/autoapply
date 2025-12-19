@@ -163,7 +163,7 @@ export class GlassdoorScraper {
     }
 
     try {
-      await this.page!.goto(jobUrl, { waitUntil: 'networkidle2' });
+      await this.page!.goto(jobUrl, { waitUntil: 'networkidle2', timeout: 60000 });
 
       // Click apply button
       const applyButton = await this.page!.$('[data-test="apply-button"]');

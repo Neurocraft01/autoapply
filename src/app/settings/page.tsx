@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase/client';
+import { useSession } from 'next-auth/react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -23,6 +23,7 @@ import {
 
 export default function SettingsPage() {
   const router = useRouter();
+  const { data: session, status } = useSession();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -48,41 +49,32 @@ export default function SettingsPage() {
   const [showPassword, setShowPassword] = useState<{ [key: string]: boolean }>({});
 
   useEffect(() => {
+    if (status === 'loading') return;
+    
+    if (!session) {
+      router.push('/auth/login');
+      return;
+    }
+
     const loadSettings = async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-          router.push('/auth/login');
-          return;
-        }
 
         // Load automation settings
-        const { data: autoData } = await supabase
-          .from('automation_settings')
-          .select('*')
-          .eq('user_id', user.id)
-          .single();
-
-        if (autoData) {
-          setAutomationSettings(autoData);
+        const settingsRes = await fetch('/api/settings/automation');
+        if (settingsRes.ok) {
+          const autoData = await settingsRes.json();
+          if (autoData) {
+            setAutomationSettings(autoData);
+          }
         }
 
         // Load portal credentials
-        const { data: portalData } = await supabase
-          .from('portal_credentials')
-          .select(`
-            *,
-            portal:job_portals (
-              id,
-              name,
-              url,
-              logo_url
-            )
-          `)
-          .eq('user_id', user.id);
-
-        if (portalData) {
-          setPortals(portalData);
+        const portalsRes = await fetch('/api/portals/credentials');
+        if (portalsRes.ok) {
+          const portalData = await portalsRes.json();
+          if (portalData) {
+            setPortals(portalData);
+          }
         }
 
         setLoading(false);
@@ -94,23 +86,18 @@ export default function SettingsPage() {
     };
 
     loadSettings();
-  }, [router]);
+  }, [session, status, router]);
 
   const saveAutomationSettings = async () => {
     setSaving(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
+      const response = await fetch('/api/settings/automation', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(automationSettings),
+      });
 
-      const { error } = await supabase
-        .from('automation_settings')
-        .upsert({
-          user_id: user.id,
-          ...automationSettings,
-          updated_at: new Date().toISOString(),
-        });
-
-      if (error) throw error;
+      if (!response.ok) throw new Error('Failed to save settings');
 
       toast.success('Settings saved successfully!');
     } catch (error: any) {
@@ -126,12 +113,11 @@ export default function SettingsPage() {
     }
 
     try {
-      const { error } = await supabase
-        .from('portal_credentials')
-        .delete()
-        .eq('id', portalId);
+      const response = await fetch(`/api/portals/credentials?id=${portalId}`, {
+        method: 'DELETE',
+      });
 
-      if (error) throw error;
+      if (!response.ok) throw new Error('Failed to delete portal');
 
       setPortals(portals.filter((p) => p.id !== portalId));
       toast.success('Portal removed successfully');

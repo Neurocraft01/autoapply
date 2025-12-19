@@ -144,7 +144,7 @@ export class IndeedScraper {
     if (!this.page) throw new Error('Browser not initialized');
 
     try {
-      await this.page.goto(jobUrl, { waitUntil: 'networkidle2' });
+      await this.page.goto(jobUrl, { waitUntil: 'networkidle2', timeout: 60000 });
 
       // Look for Apply button
       const applyButton = await this.page.$('[class*="apply"]');

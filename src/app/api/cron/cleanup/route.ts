@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import JobQueue, { JobType } from '@/lib/queue/jobQueue';
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { db } from '@/lib/db/client';
+import { jobQueue as jobQueueTable } from '@/lib/db/schema';
+import { and, inArray, lt } from 'drizzle-orm';
+import { JobQueue, JobType } from '@/lib/queue/jobQueue';
 
 const jobQueue = new JobQueue();
 
@@ -24,15 +21,14 @@ export async function GET(request: NextRequest) {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const { error: queueCleanupError } = await supabaseAdmin
-      .from('job_queue')
-      .delete()
-      .in('status', ['completed', 'failed'])
-      .lt('completed_at', thirtyDaysAgo.toISOString());
-
-    if (queueCleanupError) {
-      console.error('Queue cleanup error:', queueCleanupError);
-    }
+    await db
+      .delete(jobQueueTable)
+      .where(
+        and(
+          inArray(jobQueueTable.status, ['completed', 'failed']),
+          lt(jobQueueTable.processedAt, thirtyDaysAgo)
+        )
+      );
 
     return NextResponse.json({
       message: 'Cleanup jobs created successfully',

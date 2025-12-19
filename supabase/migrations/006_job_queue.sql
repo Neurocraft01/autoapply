@@ -19,17 +19,6 @@ CREATE INDEX IF NOT EXISTS idx_job_queue_user_id ON job_queue(user_id);
 CREATE INDEX IF NOT EXISTS idx_job_queue_type ON job_queue(type);
 CREATE INDEX IF NOT EXISTS idx_job_queue_created_at ON job_queue(created_at);
 
--- Add matched_at column to jobs table if it doesn't exist
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns 
-    WHERE table_name = 'jobs' AND column_name = 'matched_at'
-  ) THEN
-    ALTER TABLE jobs ADD COLUMN matched_at TIMESTAMP WITH TIME ZONE;
-  END IF;
-END $$;
-
 -- Create notification_settings table
 CREATE TABLE IF NOT EXISTS notification_settings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -115,21 +104,21 @@ CREATE OR REPLACE FUNCTION create_default_user_settings()
 RETURNS TRIGGER AS $$
 BEGIN
   INSERT INTO notification_settings (user_id)
-  VALUES (NEW.id)
+  VALUES (NEW.user_id)
   ON CONFLICT (user_id) DO NOTHING;
   
   INSERT INTO automation_settings (user_id)
-  VALUES (NEW.id)
+  VALUES (NEW.user_id)
   ON CONFLICT (user_id) DO NOTHING;
   
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Trigger to create default settings
-DROP TRIGGER IF EXISTS create_user_default_settings ON auth.users;
+-- Trigger to create default settings when candidate profile is created
+DROP TRIGGER IF EXISTS create_user_default_settings ON candidate_profiles;
 CREATE TRIGGER create_user_default_settings
-  AFTER INSERT ON auth.users
+  AFTER INSERT ON candidate_profiles
   FOR EACH ROW
   EXECUTE FUNCTION create_default_user_settings();
 

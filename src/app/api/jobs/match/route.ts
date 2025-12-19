@@ -1,151 +1,110 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth/authOptions';
+import { db } from '@/lib/db/client';
+import { profiles, skills, jobs, jobMatches, automationSettings } from '@/lib/db/schema';
+import { eq } from 'drizzle-orm';
 import { calculateJobMatchScore } from '@/lib/matching/jobMatcher';
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Get user profile and preferences
-    const { data: profile } = await supabaseAdmin
-      .from('candidate_profiles')
-      .select(`
-        *,
-        skills (*),
-        experience (*),
-        preferences:job_preferences (*)
-      `)
-      .eq('user_id', user.id)
-      .single();
+    // Get user profile
+    const [profile] = await db
+      .select()
+      .from(profiles)
+      .where(eq(profiles.userId, session.user.id))
+      .limit(1);
 
     if (!profile) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     }
 
-    // Get unmatched jobs from last 7 days
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    // Get user skills
+    const userSkills = await db
+      .select()
+      .from(skills)
+      .where(eq(skills.userId, session.user.id));
 
-    const { data: jobs } = await supabaseAdmin
-      .from('scraped_jobs')
-      .select('*')
-      .gte('posted_date', sevenDaysAgo.toISOString())
-      .is('deleted_at', null);
+    // Get automation settings for minimum match threshold
+    const [settings] = await db
+      .select()
+      .from(automationSettings)
+      .where(eq(automationSettings.userId, session.user.id))
+      .limit(1);
 
-    if (!jobs || jobs.length === 0) {
-      return NextResponse.json({ message: 'No new jobs to match', matches: [] });
-    }
+    const minMatchThreshold = settings?.minMatchScore || 60;
 
-    // Calculate match scores
+    // Get all active jobs
+    const allJobs = await db
+      .select()
+      .from(jobs)
+      .where(eq(jobs.isActive, true));
+
+    // Calculate match scores for all jobs
     const matches = [];
-    for (const job of jobs) {
-      // Check if already matched
-      const { data: existing } = await supabaseAdmin
-        .from('job_matches')
-        .select('id')
-        .eq('profile_id', profile.id)
-        .eq('job_id', job.id)
-        .single();
-
-      if (existing) continue;
-
-      const matchScore = calculateJobMatchScore(job, profile);
-
-      // Only save matches above threshold
-      const minScore = profile.preferences?.min_match_score || 70;
-      if (matchScore.total_score >= minScore) {
-        const { data: match } = await supabaseAdmin
-          .from('job_matches')
-          .insert({
-            profile_id: profile.id,
-            job_id: job.id,
-            match_score: matchScore.total_score,
-            match_details: matchScore,
-          })
-          .select()
-          .single();
-
-        if (match) {
-          matches.push({
-            ...match,
-            job,
-          });
+    for (const job of allJobs) {
+      const matchScoreBreakdown = calculateJobMatchScore(
+        {
+          id: job.id,
+          portal_id: job.portalId || '',
+          job_title: job.jobTitle,
+          company_name: job.companyName,
+          location: job.location || '',
+          job_type: job.jobType || '',
+          description: job.description || '',
+          requirements: job.requirements || '',
+          salary_range: job.salary || '',
+          job_url: job.jobUrl,
+          posted_date: job.postedDate?.toISOString() || new Date().toISOString(),
+          scraped_at: job.createdAt.toISOString(),
+          is_active: job.isActive,
+          created_at: job.createdAt.toISOString(),
+        },
+        {
+          preferred_titles: [profile.currentTitle].filter(Boolean) as string[],
+          skills: userSkills.map(s => s.name),
+          preferred_locations: [profile.location].filter(Boolean) as string[],
+          salary_expectation: { min: 0, max: 0 }, // Can add to profile schema later
+          experience_years: profile.yearsOfExperience || 0,
         }
+      );
+
+      if (matchScoreBreakdown.total_score >= minMatchThreshold) {
+        matches.push({
+          jobId: job.id,
+          matchScore: matchScoreBreakdown.total_score,
+          matchReasons: matchScoreBreakdown,
+        });
       }
     }
 
+    // Clear old matches for this user
+    await db.delete(jobMatches).where(eq(jobMatches.userId, session.user.id));
+
+    // Insert new matches
+    if (matches.length > 0) {
+      await db.insert(jobMatches).values(
+        matches.map(m => ({
+          userId: session.user.id!,
+          jobId: m.jobId,
+          matchScore: m.matchScore,
+          matchReasons: '',
+        }))
+      );
+    }
+
     return NextResponse.json({
-      message: `Found ${matches.length} new matches`,
-      matches,
+      message: 'Match analysis complete',
+      matchCount: matches.length,
+      topMatches: matches.slice(0, 5),
     });
   } catch (error: any) {
     console.error('Job matching error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-}
-
-export async function GET(request: NextRequest) {
-  try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { data: profile } = await supabaseAdmin
-      .from('candidate_profiles')
-      .select('id')
-      .eq('user_id', user.id)
-      .single();
-
-    if (!profile) {
-      return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
-    }
-
-    const { data: matches } = await supabaseAdmin
-      .from('job_matches')
-      .select(`
-        *,
-        job:scraped_jobs (
-          job_title,
-          company_name,
-          location,
-          job_url,
-          salary_range,
-          job_type,
-          portal:job_portals (
-            name
-          )
-        )
-      `)
-      .eq('profile_id', profile.id)
-      .order('match_score', { ascending: false })
-      .limit(50);
-
-    return NextResponse.json({ matches: matches || [] });
-  } catch (error: any) {
-    console.error('Get matches error:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

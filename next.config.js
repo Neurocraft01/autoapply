@@ -4,13 +4,6 @@ const nextConfig = {
     domains: [
       'lh3.googleusercontent.com',
       'avatars.githubusercontent.com',
-      'supabase.co',
-    ],
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: '**.supabase.co',
-      },
     ],
   },
   webpack: (config, { isServer }) => {

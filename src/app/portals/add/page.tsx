@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase/client';
+import { useSession } from 'next-auth/react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -14,6 +14,7 @@ import { Globe, ArrowLeft, Shield, Info } from 'lucide-react';
 
 export default function AddPortalPage() {
   const router = useRouter();
+  const { data: session, status } = useSession();
   const [loading, setLoading] = useState(false);
   const [portals, setPortals] = useState<any[]>([]);
   const [selectedPortal, setSelectedPortal] = useState('');
@@ -23,20 +24,23 @@ export default function AddPortalPage() {
   });
 
   useEffect(() => {
+    if (status === 'loading') return;
+    
+    if (!session) {
+      router.push('/auth/login');
+      return;
+    }
+
     loadPortals();
-  }, []);
+  }, [session, status, router]);
 
   const loadPortals = async () => {
     try {
-      const { data, error } = await supabase
-        .from('job_portals')
-        .select('*')
-        .eq('is_active', true)
-        .order('name');
-
-      if (error) throw error;
-
-      setPortals(data || []);
+      const response = await fetch('/api/portals');
+      if (response.ok) {
+        const data = await response.json();
+        setPortals(data || []);
+      }
     } catch (error) {
       console.error('Error loading portals:', error);
       toast.error('Failed to load portals');
@@ -53,19 +57,11 @@ export default function AddPortalPage() {
 
     setLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
-
-      // Get session token
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('No session');
-
       // Call API to save credentials (with encryption)
       const response = await fetch('/api/portals/credentials', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
           portal_id: selectedPortal,

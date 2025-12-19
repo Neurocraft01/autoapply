@@ -1,53 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth/authOptions';
+import { db } from '@/lib/db/client';
+import { skills, profiles } from '@/lib/db/schema';
+import { eq } from 'drizzle-orm';
 
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { skill_name, proficiency_level, years_of_experience } = await request.json();
-
-    // Get profile
-    const { data: profile } = await supabaseAdmin
-      .from('candidate_profiles')
-      .select('id')
-      .eq('user_id', user.id)
-      .single();
-
-    if (!profile) {
-      return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
-    }
+    const { name, category, proficiencyLevel } = await request.json();
 
     // Add skill
-    const { data: skill, error: skillError } = await supabaseAdmin
-      .from('skills')
-      .insert({
-        profile_id: profile.id,
-        skill_name,
-        proficiency_level: proficiency_level || 'intermediate',
-        years_of_experience: years_of_experience || 0,
+    const [skill] = await db
+      .insert(skills)
+      .values({
+        userId: session.user.id,
+        name,
+        category: category || 'General',
+        proficiencyLevel: proficiencyLevel || 'intermediate',
       })
-      .select()
-      .single();
-
-    if (skillError) {
-      return NextResponse.json({ error: skillError.message }, { status: 500 });
-    }
+      .returning();
 
     return NextResponse.json({ skill });
   } catch (error: any) {
@@ -58,15 +34,8 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-
-    if (authError || !user) {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -77,14 +46,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Skill ID required' }, { status: 400 });
     }
 
-    const { error: deleteError } = await supabaseAdmin
-      .from('skills')
-      .delete()
-      .eq('id', skillId);
-
-    if (deleteError) {
-      return NextResponse.json({ error: deleteError.message }, { status: 500 });
-    }
+    await db.delete(skills).where(eq(skills.id, skillId));
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

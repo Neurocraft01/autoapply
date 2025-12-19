@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import JobQueue, { JobType } from '@/lib/queue/jobQueue';
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { db } from '@/lib/db/client';
+import { automationSettings, jobs, jobMatches, profiles } from '@/lib/db/schema';
+import { eq, and, isNull } from 'drizzle-orm';
+import { JobQueue, JobType } from '@/lib/queue/jobQueue';
 
 const jobQueue = new JobQueue();
 
@@ -17,11 +14,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get all users with auto-match enabled
-    const { data: settings } = await supabaseAdmin
-      .from('automation_settings')
-      .select('user_id')
-      .eq('auto_match_enabled', true);
+    // Get all users with auto-apply enabled (simplified - we can add auto_match_enabled later)
+    const settings = await db
+      .select()
+      .from(automationSettings)
+      .where(eq(automationSettings.autoApplyEnabled, true));
 
     if (!settings || settings.length === 0) {
       return NextResponse.json({ message: 'No users with auto-match enabled' });
@@ -31,7 +28,7 @@ export async function GET(request: NextRequest) {
 
     for (const setting of settings) {
       // Create match job
-      await jobQueue.addJob(JobType.MATCH_JOBS, setting.user_id, {});
+      await jobQueue.addJob(JobType.MATCH_JOBS, setting.userId, {});
       jobsCreated++;
     }
 

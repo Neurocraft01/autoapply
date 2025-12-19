@@ -1,7 +1,7 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { useSession } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -11,7 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 
 export default function AutomationSettingsPage() {
-  const supabase = createClient();
+  const { data: session, status } = useSession();
   const router = useRouter();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
@@ -19,57 +19,31 @@ export default function AutomationSettingsPage() {
 
   const [settings, setSettings] = useState({
     auto_apply_enabled: false,
-    auto_scrape_enabled: false,
-    auto_match_enabled: true,
+    max_daily_applications: 10,
     min_match_score: 70,
-    max_applications_per_day: 10,
-    scrape_frequency_hours: 24,
-    preferred_portals: ['LinkedIn', 'Indeed'] as string[],
-    excluded_companies: [] as string[],
-    auto_apply_hours_start: '09:00:00',
-    auto_apply_hours_end: '17:00:00',
   });
 
-  const [newExcludedCompany, setNewExcludedCompany] = useState('');
-
   useEffect(() => {
-    loadSettings();
-  }, []);
+    if (status === 'unauthenticated') {
+      router.push('/auth/login');
+    } else if (status === 'authenticated') {
+      loadSettings();
+    }
+  }, [status, router]);
 
   const loadSettings = async () => {
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        router.push('/login');
-        return;
+      const response = await fetch('/api/settings/automation');
+      if (!response.ok) {
+        throw new Error('Failed to load settings');
       }
 
-      const { data, error } = await supabase
-        .from('automation_settings')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
-
-      if (error && error.code !== 'PGRST116') {
-        throw error;
-      }
-
-      if (data) {
-        setSettings({
-          auto_apply_enabled: data.auto_apply_enabled,
-          auto_scrape_enabled: data.auto_scrape_enabled,
-          auto_match_enabled: data.auto_match_enabled,
-          min_match_score: data.min_match_score,
-          max_applications_per_day: data.max_applications_per_day,
-          scrape_frequency_hours: data.scrape_frequency_hours,
-          preferred_portals: data.preferred_portals || ['LinkedIn', 'Indeed'],
-          excluded_companies: data.excluded_companies || [],
-          auto_apply_hours_start: data.auto_apply_hours_start,
-          auto_apply_hours_end: data.auto_apply_hours_end,
-        });
-      }
+      const data = await response.json();
+      setSettings({
+        auto_apply_enabled: data.autoApplyEnabled || data.auto_apply_enabled || false,
+        max_daily_applications: data.maxDailyApplications || data.max_daily_applications || 10,
+        min_match_score: data.minMatchScore || data.min_match_score || 70,
+      });
     } catch (error: any) {
       console.error('Error loading settings:', error);
       toast({
@@ -85,17 +59,17 @@ export default function AutomationSettingsPage() {
   const saveSettings = async () => {
     setSaving(true);
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { error } = await supabase.from('automation_settings').upsert({
-        user_id: user.id,
-        ...settings,
+      const response = await fetch('/api/settings/automation', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(settings),
       });
 
-      if (error) throw error;
+      if (!response.ok) {
+        throw new Error('Failed to save settings');
+      }
 
       toast({
         title: 'Success',
@@ -113,33 +87,7 @@ export default function AutomationSettingsPage() {
     }
   };
 
-  const togglePortal = (portal: string) => {
-    setSettings((prev) => ({
-      ...prev,
-      preferred_portals: prev.preferred_portals.includes(portal)
-        ? prev.preferred_portals.filter((p) => p !== portal)
-        : [...prev.preferred_portals, portal],
-    }));
-  };
-
-  const addExcludedCompany = () => {
-    if (newExcludedCompany.trim()) {
-      setSettings((prev) => ({
-        ...prev,
-        excluded_companies: [...prev.excluded_companies, newExcludedCompany.trim()],
-      }));
-      setNewExcludedCompany('');
-    }
-  };
-
-  const removeExcludedCompany = (company: string) => {
-    setSettings((prev) => ({
-      ...prev,
-      excluded_companies: prev.excluded_companies.filter((c) => c !== company),
-    }));
-  };
-
-  if (loading) {
+  if (loading || status === 'loading') {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-gray-500">Loading...</div>
@@ -206,183 +154,27 @@ export default function AutomationSettingsPage() {
                     id="max_applications"
                     type="number"
                     min="1"
-                    max="50"
-                    value={settings.max_applications_per_day}
+                    max="100"
+                    value={settings.max_daily_applications}
                     onChange={(e) =>
                       setSettings((prev) => ({
                         ...prev,
-                        max_applications_per_day: parseInt(e.target.value) || 10,
+                        max_daily_applications: parseInt(e.target.value) || 10,
                       }))
                     }
                     className="mt-2"
                   />
                 </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="start_time">Start Time</Label>
-                    <Input
-                      id="start_time"
-                      type="time"
-                      value={settings.auto_apply_hours_start}
-                      onChange={(e) =>
-                        setSettings((prev) => ({
-                          ...prev,
-                          auto_apply_hours_start: e.target.value,
-                        }))
-                      }
-                      className="mt-2"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="end_time">End Time</Label>
-                    <Input
-                      id="end_time"
-                      type="time"
-                      value={settings.auto_apply_hours_end}
-                      onChange={(e) =>
-                        setSettings((prev) => ({
-                          ...prev,
-                          auto_apply_hours_end: e.target.value,
-                        }))
-                      }
-                      className="mt-2"
-                    />
-                  </div>
-                </div>
-                <p className="text-sm text-gray-500">
-                  Applications will only be submitted during these hours (weekdays only)
-                </p>
               </div>
             )}
           </Card>
 
-          {/* Auto Scrape */}
-          <Card className="p-6">
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <h2 className="text-xl font-semibold">Auto-Scrape</h2>
-                <p className="text-sm text-gray-600 mt-1">
-                  Automatically search for new jobs on connected portals
-                </p>
-              </div>
-              <Switch
-                checked={settings.auto_scrape_enabled}
-                onCheckedChange={(checked) =>
-                  setSettings((prev) => ({ ...prev, auto_scrape_enabled: checked }))
-                }
-              />
-            </div>
-
-            {settings.auto_scrape_enabled && (
-              <div className="space-y-4 mt-6 border-t pt-4">
-                <div>
-                  <Label htmlFor="scrape_frequency">Scrape Frequency (hours)</Label>
-                  <Input
-                    id="scrape_frequency"
-                    type="number"
-                    min="1"
-                    max="168"
-                    value={settings.scrape_frequency_hours}
-                    onChange={(e) =>
-                      setSettings((prev) => ({
-                        ...prev,
-                        scrape_frequency_hours: parseInt(e.target.value) || 24,
-                      }))
-                    }
-                    className="mt-2"
-                  />
-                  <p className="text-sm text-gray-500 mt-1">
-                    Check for new jobs every {settings.scrape_frequency_hours} hours
-                  </p>
-                </div>
-
-                <div>
-                  <Label>Preferred Job Portals</Label>
-                  <div className="space-y-2 mt-2">
-                    {['LinkedIn', 'Indeed', 'Glassdoor', 'ZipRecruiter'].map((portal) => (
-                      <div key={portal} className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          id={portal}
-                          checked={settings.preferred_portals.includes(portal)}
-                          onChange={() => togglePortal(portal)}
-                          className="rounded"
-                        />
-                        <Label htmlFor={portal} className="font-normal">
-                          {portal}
-                        </Label>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-          </Card>
-
-          {/* Auto Match */}
-          <Card className="p-6">
-            <div className="flex items-start justify-between">
-              <div>
-                <h2 className="text-xl font-semibold">Auto-Match</h2>
-                <p className="text-sm text-gray-600 mt-1">
-                  Automatically calculate match scores for new jobs
-                </p>
-              </div>
-              <Switch
-                checked={settings.auto_match_enabled}
-                onCheckedChange={(checked) =>
-                  setSettings((prev) => ({ ...prev, auto_match_enabled: checked }))
-                }
-              />
-            </div>
-          </Card>
-
-          {/* Excluded Companies */}
-          <Card className="p-6">
-            <h2 className="text-xl font-semibold mb-4">Excluded Companies</h2>
-            <p className="text-sm text-gray-600 mb-4">
-              Never auto-apply to these companies
-            </p>
-
-            <div className="flex space-x-2 mb-4">
-              <Input
-                placeholder="Company name"
-                value={newExcludedCompany}
-                onChange={(e) => setNewExcludedCompany(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && addExcludedCompany()}
-              />
-              <Button onClick={addExcludedCompany}>Add</Button>
-            </div>
-
-            <div className="space-y-2">
-              {settings.excluded_companies.map((company) => (
-                <div
-                  key={company}
-                  className="flex items-center justify-between bg-gray-50 p-2 rounded"
-                >
-                  <span>{company}</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => removeExcludedCompany(company)}
-                  >
-                    Remove
-                  </Button>
-                </div>
-              ))}
-              {settings.excluded_companies.length === 0 && (
-                <p className="text-sm text-gray-500">No excluded companies</p>
-              )}
-            </div>
-          </Card>
-
-          <div className="flex space-x-4">
-            <Button onClick={saveSettings} disabled={saving} className="flex-1">
-              {saving ? 'Saving...' : 'Save Settings'}
-            </Button>
-            <Button variant="outline" onClick={() => router.back()}>
+          <div className="flex justify-end gap-4">
+            <Button onClick={() => router.back()} variant="outline">
               Cancel
+            </Button>
+            <Button onClick={saveSettings} disabled={saving}>
+              {saving ? 'Saving...' : 'Save Settings'}
             </Button>
           </div>
         </div>
